@@ -47,3 +47,17 @@ https://stackoverflow.com/questions/51621301/android-studio-3-1-3-unresolved-ref
 Android app:
 Allow Self-Signed Certificates in Development
 For development purposes, you can configure your OkHttpClient to trust all certificates. Note: This should only be used in a development environment.
+
+
+Firebase
+Own backend or firebase: https://medium.com/firebase-developers/what-is-firebase-the-complete-story-abridged-bcc730c5f2c0
+
+# admin user
+set environment variables 
+export ADMIN_USERNAME=admin
+export ADMIN_PASSWORD=admin_password  # Replace with a secure password
+
+
+# TODOs
+- use token from backend after login in android app and in the requests
+- adapt set_role request to use token from admin and not the admin username
