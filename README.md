@@ -57,7 +57,15 @@ set environment variables
 export ADMIN_USERNAME=admin
 export ADMIN_PASSWORD=admin_password  # Replace with a secure password
 
+# Android
+- set up xiamoi phone for usb debugging: https://medium.com/@Sammy_Hasan/developing-for-xiaomi-from-android-studio-8b4713dc7d63
+- use physical device needs adaptation of connection: https://medium.com/@kennethchangla/debugging-android-how-to-connect-to-local-server-81ddcd8f3f9d -> enable port forwarding and use local host ip and not emulator ip (5000 -> localhost: 5000)
+![alt text](image.png)
 
 # TODOs
 - use token from backend after login in android app and in the requests
 - adapt set_role request to use token from admin and not the admin username
+- android requests with bearer token authentication?
+- nginx reverse proxy https
+- icon sichtbar bei installation physikalisches Gerät
+- login session bleibt gültig
