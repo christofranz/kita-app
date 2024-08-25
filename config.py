@@ -10,3 +10,5 @@ class Config:
     # Retrieve admin credentials
     admin_username = os.getenv('ADMIN_USERNAME')
     admin_password = os.getenv('ADMIN_PASSWORD')
+    # Load Firebase credentials from environment variable
+    firebase_credentials_json = os.getenv('FIREBASE_CREDENTIALS_JSON')

@@ -62,10 +62,19 @@ export ADMIN_PASSWORD=admin_password  # Replace with a secure password
 - use physical device needs adaptation of connection: https://medium.com/@kennethchangla/debugging-android-how-to-connect-to-local-server-81ddcd8f3f9d -> enable port forwarding and use local host ip and not emulator ip (5000 -> localhost: 5000)
 ![alt text](image.png)
 
+# Firebase
+- install pip install firebase-admin
+- backendapi and when to call requesttoken()
+
+
 # TODOs
 - use token from backend after login in android app and in the requests
 - adapt set_role request to use token from admin and not the admin username
 - android requests with bearer token authentication?
 - nginx reverse proxy https
 - icon sichtbar bei installation physikalisches Gerät
-- login session bleibt gültig
+- login session bleibt gültig-> done
+- fcm token is only send for authenticated users
+- logout expires sessions for login
+- improve when requestToken for fcm is called
+- env variables to bashrc or script to generate them for session
