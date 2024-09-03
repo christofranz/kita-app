@@ -5,6 +5,8 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 import firebase_admin
 import os
 from firebase_admin import credentials, messaging
+from datetime import datetime
+from bson.objectid import ObjectId
 
 
 SECRET_KEY = app.config['SECRET_KEY']
@@ -70,7 +72,6 @@ def set_role():
 @jwt_required()
 def register_fcm_token():
     data = request.get_json()
-    print(data)
     fcm_token = data['fcm_token']
 
     current_user = get_jwt_identity()
@@ -104,3 +105,37 @@ def send_notification():
         return jsonify({'success': True, 'response': response}), 200
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+    
+@app.route('/classrooms/<classroom_name>/events', methods=['GET'])
+def get_events(classroom_name):
+    # TODO: filter events based on date
+    # current_date = datetime.now().isoformat() ... "date": {"$gte": current_date}
+    events = list(mongo.db.events.find({
+        "classroom": classroom_name,
+    }, {"_id": 1, "classroom": 1, "date": 1, "event_type": 1, "max_children_allowed": 1, "children_staying_home": 1}))
+    # Convert ObjectId to string
+    for event in events:
+        event["_id"] = str(event["_id"])
+        event["children_staying_home"] = [str(c) for c in event["children_staying_home"]]
+
+    return jsonify(events), 200
+
+@app.route('/events/<event_id>/feedback', methods=['POST'])
+def post_event_feedback(event_id):
+    data = request.get_json()
+    child_id = data['child_id']
+
+    # Add the child's ID to the event's children_staying_home array
+    # TODO: sanity check if child exists
+    mongo.db.events.update_one(
+        {"_id": ObjectId(event_id)},
+        {"$addToSet": {"children_staying_home": ObjectId(child_id)}}
+    )
+
+    # Also update the child's event_feedback field
+    mongo.db.children.update_one(
+        {"_id": ObjectId(child_id)},
+        {"$addToSet": {"event_feedback": ObjectId(event_id)}}
+    )
+    
+    return jsonify({"message": "Feedback recorded successfully"}), 200

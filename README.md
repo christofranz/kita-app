@@ -65,6 +65,7 @@ export ADMIN_PASSWORD=admin_password  # Replace with a secure password
 # Firebase
 - install pip install firebase-admin
 - backendapi and when to call requesttoken()
+- credentials json for python sdk in environment: export FIREBASE_CREDENTIALS_JSON= ...
 
 
 # TODOs
@@ -72,9 +73,10 @@ export ADMIN_PASSWORD=admin_password  # Replace with a secure password
 - adapt set_role request to use token from admin and not the admin username
 - android requests with bearer token authentication?
 - nginx reverse proxy https
-- icon sichtbar bei installation physikalisches Gerät
+- icon sichtbar bei installation physikalisches Gerät -> done
 - login session bleibt gültig-> done
 - fcm token is only send for authenticated users
-- logout expires sessions for login
+- logout expires sessions for login -> done
 - improve when requestToken for fcm is called
 - env variables to bashrc or script to generate them for session
+- useage/role of protected endpoint in backend and in android api.kt
