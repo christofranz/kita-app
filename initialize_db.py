@@ -3,6 +3,7 @@ from config import Config
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from faker import Faker
+from werkzeug.security import generate_password_hash
 
 
 # Initialize Faker for generating random data
@@ -13,6 +14,7 @@ client = MongoClient(Config.MONGO_URI)
 db = client.mydb
 
 # Clear collections
+db.users.drop()
 db.children.drop()
 db.parents.drop()
 db.teachers.drop()
@@ -20,33 +22,63 @@ db.classrooms.drop()
 db.events.drop()
 
 # Collections
+user_collection = db.users
 children_collection = db.children
 parents_collection = db.parents
 teachers_collection = db.teachers
 classrooms_collection = db.classrooms
 events_collection = db.events
 
-# Function to create parents
-def create_parents(num_parents):
-    parent_ids = []
-    for _ in range(num_parents):
-        parent = {
-            "first_name": fake.first_name(),
-            "last_name": fake.last_name(),
-            "relation_to_child": random.choice(["Mother", "Father"]),
-            "phone_number": fake.phone_number(),
-            "email": fake.email(),
-            "address": {
+# Helper function to create users
+def create_user(role):
+    return db.users.insert_one({
+        "username": fake.user_name(),
+        "email": fake.email(),
+        "password": generate_password_hash(fake.password()),
+        "first_name": fake.first_name(),
+        "last_name": fake.last_name(),
+        "phone_number": fake.phone_number(),
+        "address": {
                 "street": fake.street_address(),
                 "city": fake.city(),
                 "state": fake.state(),
                 "postal_code": fake.zipcode()
-            },
-            "employment_info": {
-                "employer": fake.company(),
-                "job_title": fake.job(),
-                "work_phone": fake.phone_number()
-            },
+        },
+        "role": role
+    }).inserted_id
+
+# Function to create parents
+def create_parents(num_parents):
+    parent_ids = []
+    # create parent user for testing
+    parent_user_id = db.users.insert_one({
+        "username": "tester",
+        "email": "test.debugger@web.com",
+        "password": generate_password_hash("test"),
+        "first_name": "Test",
+        "last_name": "Debugger",
+        "phone_number": fake.phone_number(),
+        "address": {
+                "street": fake.street_address(),
+                "city": fake.city(),
+                "state": fake.state(),
+                "postal_code": fake.zipcode()
+        },
+        "role": "parent"
+    }).inserted_id
+    parent = {
+        "user_id": parent_user_id,
+        "relation_to_child": random.choice(["Mother", "Father"]),
+        "children": []  # Will be filled later with ObjectIds of their children
+    }
+    parent_id = parents_collection.insert_one(parent).inserted_id
+    parent_ids.append(parent_id)
+    # create remaining parents with fake values
+    for _ in range(num_parents-1):
+        parent_user_id = create_user("parent")
+        parent = {
+            "user_id": parent_user_id,
+            "relation_to_child": random.choice(["Mother", "Father"]),
             "children": []  # Will be filled later with ObjectIds of their children
         }
         parent_id = parents_collection.insert_one(parent).inserted_id
@@ -56,7 +88,10 @@ def create_parents(num_parents):
 # Function to create children
 def create_children(num_children, parent_ids):
     child_ids = []
-    for i in range(num_children):
+    remaining_parent_ids = parent_ids # to ensure all parents have children
+    for _ in range(num_children):
+        parent_ids_child = random.sample(remaining_parent_ids, 2)
+        remaining_parent_ids = list(set(remaining_parent_ids) - set(parent_ids_child))
         child = {
             "first_name": fake.first_name(),
             "last_name": fake.last_name(),
@@ -77,7 +112,7 @@ def create_children(num_children, parent_ids):
                     "email": fake.email()
                 }
             ],
-            "parents": random.sample(parent_ids, 2),
+            "parents": parent_ids_child,
             "activities": [],
             "event_feedback": []  # List of event IDs the child has volunteered to stay home for
         }
@@ -94,12 +129,9 @@ def create_children(num_children, parent_ids):
 def create_teachers(num_teachers):
     teacher_ids = []
     for _ in range(num_teachers):
+        teacher_user_id = create_user("teacher")
         teacher = {
-            "first_name": fake.first_name(),
-            "last_name": fake.last_name(),
-            "role": "Teacher",
-            "phone_number": fake.phone_number(),
-            "email": fake.email(),
+            "user_id": teacher_user_id,
             "assigned_classrooms": [f"Group {random.choice(['A', 'B', 'C'])}"],
             "qualifications": [
                 "Bachelor's in Early Childhood Education",
@@ -137,7 +169,7 @@ def create_events(classroom_names, num_events=5):
         events_collection.insert_one(event)
 
 # Initialize database with data
-parent_ids = create_parents(num_parents=80)  # 40 children, 2 parents each
+parent_ids = create_parents(num_parents=80)  # 40 children, 2 parents each, each parent a child
 child_ids = create_children(num_children=40, parent_ids=parent_ids)
 teacher_ids = create_teachers(num_teachers=10)
 create_classrooms(groups=['A', 'B', 'C'], teacher_ids=teacher_ids)

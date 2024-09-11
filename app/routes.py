@@ -45,7 +45,7 @@ def login():
         return jsonify({'message': 'Invalid credentials'}), 401
     
     token = create_access_token(identity={'username': username, 'role': user['role']})
-    return jsonify({'message': 'User logged in successfully', 'token': token, "role": user["role"]})
+    return jsonify({'message': 'User logged in successfully', 'token': token, "role": user["role"], "id": str(user["_id"])})
 
 @app.route('/protected', methods=['GET'])
 @jwt_required()
@@ -75,7 +75,7 @@ def register_fcm_token():
     fcm_token = data['fcm_token']
 
     current_user = get_jwt_identity()
-    print(current_user)
+    print(f"user: {current_user}, type: {type(current_user)}")
     
     if fcm_token:
         mongo.db.users.update_one({"username": current_user['username']}, {"$set": {"fcm_token": fcm_token}})
@@ -106,19 +106,68 @@ def send_notification():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     
-@app.route('/classrooms/<classroom_name>/events', methods=['GET'])
-def get_events(classroom_name):
+@app.route('/events', methods=['GET'])
+@jwt_required()
+def get_events():
     # TODO: filter events based on date
     # current_date = datetime.now().isoformat() ... "date": {"$gte": current_date}
-    events = list(mongo.db.events.find({
-        "classroom": classroom_name,
-    }, {"_id": 1, "classroom": 1, "date": 1, "event_type": 1, "max_children_allowed": 1, "children_staying_home": 1}))
-    # Convert ObjectId to string
-    for event in events:
-        event["_id"] = str(event["_id"])
-        event["children_staying_home"] = [str(c) for c in event["children_staying_home"]]
+    # TODO: adapt User model
+    current_user = get_jwt_identity()
+    user_role = mongo.db.users.find_one({"username": current_user["username"]})["role"]
+    user_id = mongo.db.users.find_one({"username": current_user["username"]})["_id"]
 
-    return jsonify(events), 200
+    children_events = []
+    if user_role == "parent":
+        # find the parent and the corresponding children
+        parent = mongo.db.parents.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "children": 1})
+        children_ids = parent["children"]
+        # find the groups of the children
+        children_cursor = mongo.db.children.find({"_id": {"$in": children_ids}}, {"first_name": 1, "classroom": 1})
+        children_list = list(children_cursor)
+        group_ids = list(child['classroom'].replace("Group ", "") for child in children_list)
+
+        for i in range(len(group_ids)):
+            # get all events for that group
+            events = list(mongo.db.events.find({"classroom": group_ids[i]},
+                                    {"_id": 1, "classroom": 1, "date": 1, "event_type": 1, "max_children_allowed": 1, "children_staying_home": 1}))
+            # string conversion
+            for event in events:
+                event["_id"] = str(event["_id"])
+                event["children_staying_home"] = [str(c) for c in event["children_staying_home"]]
+            
+            # add events for child and classroom
+            children_events.append(
+                {
+                    "child_name": children_list[i]["first_name"],
+                    "classroom": group_ids[i],
+                    "events": events
+                }
+            )
+    elif user_role == "teacher":
+        teacher = mongo.db.teachers.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "assigned_classrooms": 1})
+        group_ids = [group.replace("Group ", "") for group in teacher["assigned_classrooms"]]
+        for i in range(len(group_ids)):
+            # get all events for the group
+            events = list(mongo.db.events.find({"classroom": group_ids[i]},
+                                    {"_id": 1, "classroom": 1, "date": 1, "event_type": 1, "max_children_allowed": 1, "children_staying_home": 1}))
+            # string conversion
+            for event in events:
+                event["_id"] = str(event["_id"])
+                event["children_staying_home"] = [str(c) for c in event["children_staying_home"]]
+
+            # add events to list without a child name
+            children_events.append(
+                {
+                    "child_name": None,
+                    "classroom": group_ids[i],
+                    "events": events
+                }
+            )
+    else:
+        jsonify({"message": "Unauthorized - Only parents and teachers can retrive events."}), 403
+
+    return jsonify(children_events), 200
+
 
 @app.route('/events/<event_id>/feedback', methods=['POST'])
 def post_event_feedback(event_id):
