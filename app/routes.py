@@ -122,7 +122,7 @@ def get_events():
         parent = mongo.db.parents.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "children": 1})
         children_ids = parent["children"]
         # find the groups of the children
-        children_cursor = mongo.db.children.find({"_id": {"$in": children_ids}}, {"first_name": 1, "classroom": 1})
+        children_cursor = mongo.db.children.find({"_id": {"$in": children_ids}}, {"_id": 1, "first_name": 1, "classroom": 1})
         children_list = list(children_cursor)
         group_ids = list(child['classroom'].replace("Group ", "") for child in children_list)
 
@@ -138,11 +138,13 @@ def get_events():
             # add events for child and classroom
             children_events.append(
                 {
+                    "child_id": str(children_list[i]["_id"]),
                     "child_name": children_list[i]["first_name"],
                     "classroom": group_ids[i],
                     "events": events
                 }
             )
+    # TODO: move to own endpoint for teachers
     elif user_role == "teacher":
         teacher = mongo.db.teachers.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "assigned_classrooms": 1})
         group_ids = [group.replace("Group ", "") for group in teacher["assigned_classrooms"]]
@@ -158,6 +160,7 @@ def get_events():
             # add events to list without a child name
             children_events.append(
                 {
+                    "child_id": None,
                     "child_name": None,
                     "classroom": group_ids[i],
                     "events": events
@@ -174,8 +177,17 @@ def post_event_feedback(event_id):
     data = request.get_json()
     child_id = data['child_id']
 
-    # Add the child's ID to the event's children_staying_home array
-    # TODO: sanity check if child exists
+    # check if child exists
+    child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})
+    if not child:
+        jsonify({"message": "Child does not exist in database."}), 400
+    
+    # check if child has already submitted feedback to stay home
+    event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
+    children_staying_home = event.get('children_staying_home', [])
+    if child["_id"] in children_staying_home:
+        jsonify({"message": "Feedback for child already available."}), 400
+    
     mongo.db.events.update_one(
         {"_id": ObjectId(event_id)},
         {"$addToSet": {"children_staying_home": ObjectId(child_id)}}
@@ -188,3 +200,33 @@ def post_event_feedback(event_id):
     )
     
     return jsonify({"message": "Feedback recorded successfully"}), 200
+
+@app.route('/events/<event_id>/feedback/<child_id>', methods=['GET'])
+def get_feedback(event_id, child_id):
+    event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
+    child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})["_id"]
+    # Find out if the child is staying home
+    children_staying_home = event.get('children_staying_home', [])
+    if child in children_staying_home:
+        return jsonify({"staying_home": True}), 200
+    else:
+        return jsonify({"staying_home": False}), 200
+
+# POST: Withdraw feedback
+@app.route('/events/<event_id>/feedback/<child_id>/withdraw', methods=['POST'])
+def withdraw_feedback(event_id, child_id):
+    event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
+    child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1, "event_feedback": 1})
+    if event and child["_id"]:
+        children_staying_home = event.get('children_staying_home', [])
+        print(children_staying_home)
+        if child["_id"] in children_staying_home:
+            # update event
+            children_staying_home.remove(child["_id"])
+            mongo.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"children_staying_home": children_staying_home}})
+            # update child feedback
+            event_feedback = child["event_feedback"]
+            event_feedback.remove(event["_id"])
+            mongo.db.children.update_one({"_id": ObjectId(child_id)}, {"$set": {"event_feedback": event_feedback}})
+            return jsonify({"message": "Feedback withdrawn"}), 200
+    return jsonify({"message": "No feedback found to withdraw"}), 400
