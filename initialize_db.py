@@ -64,7 +64,7 @@ def create_parents(num_parents):
                 "state": fake.state(),
                 "postal_code": fake.zipcode()
         },
-        "role": "parent"
+        "role": "admin"
     }).inserted_id
     parent = {
         "user_id": parent_user_id,

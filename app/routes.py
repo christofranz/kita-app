@@ -106,18 +106,16 @@ def send_notification():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
     
-@app.route('/events', methods=['GET'])
-@jwt_required()
-def get_events():
+@app.route('/user/<user_id>/events', methods=['GET'])
+def get_events(user_id):
     # TODO: filter events based on date
     # current_date = datetime.now().isoformat() ... "date": {"$gte": current_date}
-    # TODO: adapt User model
-    current_user = get_jwt_identity()
-    user_role = mongo.db.users.find_one({"username": current_user["username"]})["role"]
-    user_id = mongo.db.users.find_one({"username": current_user["username"]})["_id"]
+    user = mongo.db.users.find_one({"_id": ObjectId(user_id)}, {"_id": 1, "role": 1})
+    if not user:
+        jsonify({"message": "No user found."}), 400
 
     children_events = []
-    if user_role == "parent":
+    if user["role"] == "parent" or user["role"] == "admin":
         # find the parent and the corresponding children
         parent = mongo.db.parents.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "children": 1})
         children_ids = parent["children"]
@@ -145,7 +143,7 @@ def get_events():
                 }
             )
     # TODO: move to own endpoint for teachers
-    elif user_role == "teacher":
+    elif user["role"] == "teacher":
         teacher = mongo.db.teachers.find_one({"user_id": ObjectId(user_id)}, {"_id": 1, "assigned_classrooms": 1})
         group_ids = [group.replace("Group ", "") for group in teacher["assigned_classrooms"]]
         for i in range(len(group_ids)):
