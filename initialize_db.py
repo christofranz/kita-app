@@ -32,7 +32,6 @@ events_collection = db.events
 # Helper function to create users
 def create_user(role):
     return db.users.insert_one({
-        "username": fake.user_name(),
         "email": fake.email(),
         "password": generate_password_hash(fake.password()),
         "first_name": fake.first_name(),
@@ -44,7 +43,8 @@ def create_user(role):
                 "state": fake.state(),
                 "postal_code": fake.zipcode()
         },
-        "role": role
+        "role": role,
+        "verified": True
     }).inserted_id
 
 # Function to create parents
@@ -52,8 +52,7 @@ def create_parents(num_parents):
     parent_ids = []
     # create parent user for testing
     parent_user_id = db.users.insert_one({
-        "username": "tester",
-        "email": "test.debugger@web.com",
+        "email": "tester@web.com",
         "password": generate_password_hash("test"),
         "first_name": "Test",
         "last_name": "Debugger",
@@ -64,7 +63,8 @@ def create_parents(num_parents):
                 "state": fake.state(),
                 "postal_code": fake.zipcode()
         },
-        "role": "admin"
+        "role": "admin",
+        "verified": True
     }).inserted_id
     parent = {
         "user_id": parent_user_id,

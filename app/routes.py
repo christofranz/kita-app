@@ -4,7 +4,7 @@ from app.models import User
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import firebase_admin
 import os
-from firebase_admin import credentials, messaging
+from firebase_admin import credentials, messaging, auth
 from datetime import datetime
 from bson.objectid import ObjectId
 
@@ -23,29 +23,91 @@ firebase_admin.initialize_app(cred)
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    username = data['username']
-    password = data['password']
-    
-    if mongo.db.users.find_one({'username': username}):
-        return jsonify({'message': 'User already exists'}), 400
-    
-    # use class User to hash password
-    user = User(username, password)
-    mongo.db.users.insert_one({'username': user.username, 'password': user.password, 'role': user.role})
-    return jsonify({'message': 'User registered successfully'}), 201
+    firebase_id_token = data.get('firebase_id_token')
+
+    if not firebase_id_token:
+        return jsonify({'message': 'Error - Firebase ID token is missing'}), 400
+
+    try:
+        # Verify Firebase ID token
+        decoded_token = auth.verify_id_token(firebase_id_token)
+        user_uid = decoded_token['uid']
+        email = decoded_token['email']
+
+        # Check if user already exists in MongoDB
+        user = mongo.db.users.find_one({"uid": user_uid})
+
+        if user:
+            return jsonify({"success": False, "message": "User already registered"}), 400
+
+        # If user does not exist, add user to MongoDB
+        # TODO: phone number and address, created and updated at
+        new_user = {
+            "firebase_uid": user_uid,
+            "email": email,
+            'first_name': data['first_name'],
+            'last_name': data['last_name'],
+            'role': data['role'],
+            "email_verified": decoded_token.get('email_verified', False),
+        }
+        mongo.db.users.insert_one(new_user)
+
+        return jsonify({'message': 'User registered successfully. Please check your e-mail to verify your accouont.'}), 200
+    except Exception as e:
+        return jsonify({'message': f'error: {str(e)}'}), 400
+
+# Route to verify if email has been verified
+""" @app.route('/verify-email', methods=['POST'])
+def verify_email():
+    data = request.json
+    uid = data.get('uid')
+
+    # Fetch user from Firebase and check if email is verified
+    try:
+        user = firebase_admin.auth.get_user(uid)
+        if user.email_verified:
+            # Update MongoDB user entry as verified
+            mongo.db.users.update_one({'firebase_uid': uid}, {'$set': {'verified': True}})
+            return jsonify({'message': 'Email verified successfully'}), 200
+        else:
+            return jsonify({'error': 'Email not verified yet'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400 """
+
+# Route for password reset (send password reset email)
+@app.route('/password-reset', methods=['POST'])
+def password_reset():
+    data = request.json
+    email = data.get('email')
+
+    try:
+        # Send password reset email via Firebase
+        auth.generate_password_reset_link(email)
+        return jsonify({'message': 'Password reset email sent'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    username = data['username']
-    password = data['password']
-    
-    user = mongo.db.users.find_one({'username': username})
-    if not user or not User.verify_password(user['password'], password):
-        return jsonify({'message': 'Invalid credentials'}), 401
-    
-    token = create_access_token(identity={'username': username, 'role': user['role']})
-    return jsonify({'message': 'User logged in successfully', 'token': token, "role": user["role"], "id": str(user["_id"])})
+    firebase_id_token = request.json
+
+    try:
+        # Verify the ID token from Firebase
+        decoded_token = auth.verify_id_token(firebase_id_token)
+        firebase_uid = decoded_token['uid']
+        email_verified = decoded_token.get('email_verified', False)
+        print(f'Email verified:  {email_verified}')
+
+        # Create a JWT token for the session
+        token = create_access_token(identity=firebase_uid)
+        
+        # Return the JWT token to the client along with additional information
+        user = mongo.db.users.find_one({"firebase_uid": firebase_uid})
+        return jsonify({'message': 'User logged in successfully', 'token': token, 'user':
+                        {'id': str(user['_id']), 'email': user['email'], 'first_name': user['first_name'], 'last_name': user['last_name'], 'role': user['role']}
+                        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 @app.route('/protected', methods=['GET'])
 @jwt_required()
@@ -74,11 +136,10 @@ def register_fcm_token():
     data = request.get_json()
     fcm_token = data['fcm_token']
 
-    current_user = get_jwt_identity()
-    print(f"user: {current_user}, type: {type(current_user)}")
+    current_user_firebase_id = get_jwt_identity()
     
     if fcm_token:
-        mongo.db.users.update_one({"username": current_user['username']}, {"$set": {"fcm_token": fcm_token}})
+        mongo.db.users.update_one({"firebase_uid": current_user_firebase_id}, {"$set": {"fcm_token": fcm_token}})
         return jsonify({"message": "Token registered successfully"}), 200
     else:
         return jsonify({"error": "Token not provided"}), 400
