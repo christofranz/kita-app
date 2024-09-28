@@ -9,7 +9,7 @@ from datetime import datetime
 from bson.objectid import ObjectId
 
 
-SECRET_KEY = app.config['SECRET_KEY']
+SECRET_KEY = app.config['FLASK_SECRET_KEY']
 jwt = JWTManager(app)
 
 # Initialize Firebase Admin SDK
@@ -56,36 +56,20 @@ def register():
     except Exception as e:
         return jsonify({'message': f'error: {str(e)}'}), 400
 
-# Route to verify if email has been verified
-""" @app.route('/verify-email', methods=['POST'])
-def verify_email():
-    data = request.json
-    uid = data.get('uid')
-
-    # Fetch user from Firebase and check if email is verified
-    try:
-        user = firebase_admin.auth.get_user(uid)
-        if user.email_verified:
-            # Update MongoDB user entry as verified
-            mongo.db.users.update_one({'firebase_uid': uid}, {'$set': {'verified': True}})
-            return jsonify({'message': 'Email verified successfully'}), 200
-        else:
-            return jsonify({'error': 'Email not verified yet'}), 400
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400 """
-
-# Route for password reset (send password reset email)
-@app.route('/password-reset', methods=['POST'])
+# Route for password reset (disable old tokens)
+@app.route('/reset_password', methods=['POST'])
 def password_reset():
-    data = request.json
-    email = data.get('email')
+    email = request.json
 
     try:
-        # Send password reset email via Firebase
-        auth.generate_password_reset_link(email)
+        # Get the user by email
+        user = auth.get_user_by_email(email)
+
+        # Revoke all refresh tokens for the user (disables old tokens)
+        auth.revoke_refresh_tokens(user.uid)
         return jsonify({'message': 'Password reset email sent'}), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'message': f'Error: {str(e)}'}), 400
 
 @app.route('/login', methods=['POST'])
 def login():
