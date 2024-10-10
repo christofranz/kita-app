@@ -7,6 +7,12 @@ import os
 from firebase_admin import credentials, messaging, auth
 from datetime import datetime
 from bson.objectid import ObjectId
+from app.schemas.event_schema import EventFeedbackSchema
+from app.schemas.object_schema import ObjectIdSchema
+from app.schemas.user_schema import LoginSchema, UserSchema, PasswordResetSchema
+from app.schemas.role_schema import SetRoleSchema
+from app.schemas.firebase_schema import FcmTokenSchema, FcmMessageSchema
+from marshmallow import ValidationError
 
 
 SECRET_KEY = app.config['FLASK_SECRET_KEY']
@@ -22,12 +28,15 @@ firebase_admin.initialize_app(cred)
 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
+    user_schema = UserSchema()
+    try:
+        # Parses and validates JSON data
+        data = user_schema.load(request.json)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
     firebase_id_token = data.get('firebase_id_token')
-
-    if not firebase_id_token:
-        return jsonify({'message': 'Error - Firebase ID token is missing'}), 400
-
     try:
         # Verify Firebase ID token
         decoded_token = auth.verify_id_token(firebase_id_token)
@@ -59,7 +68,13 @@ def register():
 # Route for password reset (disable old tokens)
 @app.route('/reset_password', methods=['POST'])
 def password_reset():
-    email = request.json
+    password_reset_schema = PasswordResetSchema()
+    try:
+        # Parses and validates JSON data
+        email = password_reset_schema.load(request.json)['email']
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
 
     try:
         # Get the user by email
@@ -73,7 +88,13 @@ def password_reset():
 
 @app.route('/login', methods=['POST'])
 def login():
-    firebase_id_token = request.json
+    login_schema = LoginSchema()
+    try:
+        # Parses and validates JSON data
+        firebase_id_token = login_schema.load(request.json)['firebase_id_token']
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
 
     try:
         # Verify the ID token from Firebase
@@ -91,7 +112,7 @@ def login():
                         {'id': str(user['_id']), 'email': user['email'], 'first_name': user['first_name'], 'last_name': user['last_name'], 'role': user['role']}
                         }), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 401
 
 @app.route('/protected', methods=['GET'])
 @jwt_required()
@@ -102,39 +123,58 @@ def protected():
 @app.route('/set_role', methods=['POST'])
 @jwt_required()
 def set_role():
-
-    current_user = get_jwt_identity()
-    if current_user['role'] != 'admin':
+    set_role_schema = SetRoleSchema()
+    try:
+        # Parses and validates JSON data
+        data = set_role_schema.load(request.json)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
+    # verify if the admin is setting the role
+    current_user_firebase_id = get_jwt_identity()
+    current_role = mongo.db.users.find_one({"firebase_uid": current_user_firebase_id}, {'role': 1})['role']
+    if current_role != 'admin':
         return jsonify({"message": "Unauthorized - Admins only!"}), 403
 
-    data = request.get_json()
+    # update role in db
     target_username = data['target_username']
     new_role = data['new_role']
-
     mongo.db.users.update_one({"username": target_username}, {"$set": {"role": new_role}})
     return jsonify({"message": "Role updated successfully"})
     
 @app.route('/register_fcm_token', methods=['POST'])
 @jwt_required()
 def register_fcm_token():
-    data = request.get_json()
-    fcm_token = data['fcm_token']
-
-    current_user_firebase_id = get_jwt_identity()
+    fcm_token_schema = FcmTokenSchema()
+    try:
+        # Parses and validates JSON data
+        data = fcm_token_schema.load(request.json)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
     
-    if fcm_token:
-        mongo.db.users.update_one({"firebase_uid": current_user_firebase_id}, {"$set": {"fcm_token": fcm_token}})
-        return jsonify({"message": "Token registered successfully"}), 200
-    else:
-        return jsonify({"error": "Token not provided"}), 400
+    # update token in db
+    fcm_token = data['fcm_token']
+    current_user_firebase_id = get_jwt_identity()
+    mongo.db.users.update_one({"firebase_uid": current_user_firebase_id}, {"$set": {"fcm_token": fcm_token}})
+    return jsonify({"message": "Token registered successfully"}), 200
+ 
 
 @app.route('/send_notification', methods=['POST'])
 def send_notification():
+    notification_schema = FcmMessageSchema()
     try:
-        data = request.get_json()
-        token = data.get('token')
-        title = data.get('title')
-        body = data.get('body')
+        # Parses and validates JSON data
+        data = notification_schema.load(request.json)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
+    try:
+        fcm_token = data['fcm_token']
+        title = data['title']
+        body = data['body']
 
         # Create a message to send to the device
         message = messaging.Message(
@@ -142,7 +182,7 @@ def send_notification():
                 title=title,
                 body=body,
             ),
-            token=token,
+            token=fcm_token,
         )
 
         # Send the message
@@ -153,8 +193,15 @@ def send_notification():
     
 @app.route('/user/<user_id>/events', methods=['GET'])
 def get_events(user_id):
-    # TODO: filter events based on date
-    # current_date = datetime.now().isoformat() ... "date": {"$gte": current_date}
+    user_id_schema = ObjectIdSchema()
+    try:
+        # Parses and validates JSON data
+        user_id = user_id_schema.load(user_id)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
+
     user = mongo.db.users.find_one({"_id": ObjectId(user_id)}, {"_id": 1, "role": 1})
     if not user:
         jsonify({"message": "No user found."}), 400
@@ -217,9 +264,17 @@ def get_events(user_id):
 
 @app.route('/events/<event_id>/feedback', methods=['POST'])
 def post_event_feedback(event_id):
-    data = request.get_json()
-    child_id = data['child_id']
+    event_id_schema = ObjectIdSchema()
+    event_feedback_schema = EventFeedbackSchema()
+    try:
+        # Parses and validates JSON data
+        event_id = event_id_schema.load(event_id)
+        data = event_feedback_schema.load(request.json)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400    
 
+    child_id = data['child_id']
     # check if child exists
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})
     if not child:
@@ -246,6 +301,16 @@ def post_event_feedback(event_id):
 
 @app.route('/events/<event_id>/feedback/<child_id>', methods=['GET'])
 def get_feedback(event_id, child_id):
+    event_id_schema = ObjectIdSchema()
+    child_id_schema = ObjectIdSchema()
+    try:
+        # Parses and validates JSON data
+        event_id = event_id_schema.load(event_id)
+        child_id = child_id_schema.load(child_id)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
     event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})["_id"]
     # Find out if the child is staying home
@@ -255,9 +320,18 @@ def get_feedback(event_id, child_id):
     else:
         return jsonify({"staying_home": False}), 200
 
-# POST: Withdraw feedback
 @app.route('/events/<event_id>/feedback/<child_id>/withdraw', methods=['POST'])
 def withdraw_feedback(event_id, child_id):
+    event_id_schema = ObjectIdSchema()
+    child_id_schema = ObjectIdSchema()
+    try:
+        # Parses and validates JSON data
+        event_id = event_id_schema.load(event_id)
+        child_id = child_id_schema.load(child_id)
+    except ValidationError as err:
+        # Returns validation errors if the input is invalid
+        return jsonify({"message": f'Error - {err.messages}'}), 400
+    
     event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1, "event_feedback": 1})
     if event and child["_id"]:
