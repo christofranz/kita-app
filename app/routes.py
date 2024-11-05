@@ -1,5 +1,8 @@
 from flask import request, jsonify
-from app import app, mongo
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_cors import CORS
+from app import app, mongo, logger
 from app.models import User
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import firebase_admin
@@ -14,6 +17,20 @@ from app.schemas.role_schema import SetRoleSchema
 from app.schemas.firebase_schema import FcmTokenSchema, FcmMessageSchema
 from marshmallow import ValidationError
 
+# Initialize CORS with default settings (allowing all origins)
+CORS(app)
+
+# Initialize the Limiter
+limiter = Limiter(
+    key_func=get_remote_address,  # Use the client's IP address as the limiter key
+    app=app,
+    default_limits=["100 per hour", "200 per day"]  # Default: 100 requests per hour for all routes
+)
+
+# Global error handler for rate limit exceeded
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify(error="rate limit exceeded", message=str(e.description)), 429
 
 SECRET_KEY = app.config['FLASK_SECRET_KEY']
 jwt = JWTManager(app)
@@ -33,8 +50,10 @@ def register():
         # Parses and validates JSON data
         data = user_schema.load(request.json)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during registration: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400
     
     firebase_id_token = data.get('firebase_id_token')
     try:
@@ -73,18 +92,30 @@ def password_reset():
         # Parses and validates JSON data
         email = password_reset_schema.load(request.json)['email']
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during password reset: {err.messages}")
+        # Returns error with minimal detail
+        return jsonify({"message": f'Error - Invalid input.'}), 400
 
     try:
+        # Check if user exists in db
+        user = mongo.db.users.query.filter_by(email=email).first()
+        if not user:
+            logger.warning(f"Password reset requested for non-existent email.")
+            # Do not reveal that the email does not exist
+            return jsonify({'message': 'If an account with that email exists, a password reset email will be sent.'}), 200
+
+        # Proceed with password reset process
         # Get the user by email
         user = auth.get_user_by_email(email)
 
         # Revoke all refresh tokens for the user (disables old tokens)
         auth.revoke_refresh_tokens(user.uid)
+        logger.info(f"Password reset requested for email.")
         return jsonify({'message': 'Password reset email sent'}), 200
     except Exception as e:
-        return jsonify({'message': f'Error: {str(e)}'}), 400
+        logger.error(f"Internal server error during password reset request: {str(e)}")
+        return jsonify({'message': f'Error: Internal server error.'}), 500
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -93,26 +124,36 @@ def login():
         # Parses and validates JSON data
         firebase_id_token = login_schema.load(request.json)['firebase_id_token']
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during login: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400
 
     try:
         # Verify the ID token from Firebase
         decoded_token = auth.verify_id_token(firebase_id_token)
         firebase_uid = decoded_token['uid']
         email_verified = decoded_token.get('email_verified', False)
-        print(f'Email verified:  {email_verified}')
+        if not email_verified:
+            # Return error if email not verified
+            return jsonify({'message:': 'Error - Email not verified'}), 401
 
         # Create a JWT token for the session
         token = create_access_token(identity=firebase_uid)
         
         # Return the JWT token to the client along with additional information
         user = mongo.db.users.find_one({"firebase_uid": firebase_uid})
+        logger.info(f"User logged in: UID: {firebase_uid}")
         return jsonify({'message': 'User logged in successfully', 'token': token, 'user':
                         {'id': str(user['_id']), 'email': user['email'], 'first_name': user['first_name'], 'last_name': user['last_name'], 'role': user['role']}
                         }), 200
+    except auth.InvalidIdTokenError:
+        logger.warning("Invalid ID token provided during login.")
+        return jsonify({'message': 'Error - Invalid token.'}), 401
     except Exception as e:
-        return jsonify({'error': str(e)}), 401
+        # Log internal server error
+        logger.error(f"Internal server error during login: {str(e)}")
+        return jsonify({'message': 'Error - Internal server error.'}), 500
 
 @app.route('/protected', methods=['GET'])
 @jwt_required()
@@ -128,8 +169,10 @@ def set_role():
         # Parses and validates JSON data
         data = set_role_schema.load(request.json)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during set_role: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400
     
     # verify if the admin is setting the role
     current_user_firebase_id = get_jwt_identity()
@@ -151,8 +194,10 @@ def register_fcm_token():
         # Parses and validates JSON data
         data = fcm_token_schema.load(request.json)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during registration of fcm token: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400
     
     # update token in db
     fcm_token = data['fcm_token']
@@ -168,6 +213,8 @@ def send_notification():
         # Parses and validates JSON data
         data = notification_schema.load(request.json)
     except ValidationError as err:
+        # Log details of validation error
+        logger.warning(f"Validation error during registration: {err.messages}")
         # Returns validation errors if the input is invalid
         return jsonify({"message": f'Error - {err.messages}'}), 400
     
@@ -192,19 +239,30 @@ def send_notification():
         return jsonify({'success': False, 'error': str(e)}), 500
     
 @app.route('/user/<user_id>/events', methods=['GET'])
+@jwt_required()
 def get_events(user_id):
     user_id_schema = ObjectIdSchema()
     try:
         # Parses and validates JSON data
         user_id = user_id_schema.load(user_id)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
-    
+        # Log details of validation error
+        logger.warning(f"Validation error during getting events: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": "Error - Invalid input."}), 400
 
-    user = mongo.db.users.find_one({"_id": ObjectId(user_id)}, {"_id": 1, "role": 1})
+    user = mongo.db.users.find_one({"_id": ObjectId(user_id)}, {"_id": 1, "role": 1, "firebase_uid": 1})
+
+    # if no user with that user_id exists
     if not user:
+        logger.warning(f"Events requested for not existing user_id: {user_id}")
         jsonify({"message": "No user found."}), 400
+
+    # verify if user_id matches to logged in user
+    current_user_firebase_id = get_jwt_identity()
+    if user["firebase_uid"] != current_user_firebase_id:
+        logger.warning(f"User_id mismatch for getting events. Given user_id does not fit to logged in user_id.")
+        jsonify({"message": "Unauthorized access"}), 403
 
     children_events = []
     if user["role"] == "parent" or user["role"] == "admin":
@@ -257,8 +315,10 @@ def get_events(user_id):
                 }
             )
     else:
-        jsonify({"message": "Unauthorized - Only parents and teachers can retrive events."}), 403
-
+        logger.warning("Role of the user requesting events is not allowed.")
+        jsonify({"message": "Unauthorized access."}), 403
+    
+    logger.info(f"Events retrieved for user_id.")
     return jsonify(children_events), 200
 
 
@@ -271,20 +331,24 @@ def post_event_feedback(event_id):
         event_id = event_id_schema.load(event_id)
         data = event_feedback_schema.load(request.json)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400    
+        # Log details of validation error
+        logger.warning(f"Validation error during posting event feedback: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400    
 
     child_id = data['child_id']
     # check if child exists
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})
     if not child:
-        jsonify({"message": "Child does not exist in database."}), 400
+        logger.warning(f"Event feedback posted for child_id {child_id} that does not exist.")
+        jsonify({"message": "Error - Invalid input."}), 400
     
     # check if child has already submitted feedback to stay home
     event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
     children_staying_home = event.get('children_staying_home', [])
     if child["_id"] in children_staying_home:
-        jsonify({"message": "Feedback for child already available."}), 400
+        logger.warning(f"Feedback for child_id {child_id} is already available.")
+        jsonify({"message": "Error - Invalid input."}), 400
     
     mongo.db.events.update_one(
         {"_id": ObjectId(event_id)},
@@ -296,7 +360,7 @@ def post_event_feedback(event_id):
         {"_id": ObjectId(child_id)},
         {"$addToSet": {"event_feedback": ObjectId(event_id)}}
     )
-    
+    logger.info(f"Stored event feedback for child successfully.")
     return jsonify({"message": "Feedback recorded successfully"}), 200
 
 @app.route('/events/<event_id>/feedback/<child_id>', methods=['GET'])
@@ -308,11 +372,23 @@ def get_feedback(event_id, child_id):
         event_id = event_id_schema.load(event_id)
         child_id = child_id_schema.load(child_id)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during getting feedback for event: {err.messages}")
+        # Returns error with minimal feedback
+        return jsonify({"message": f'Error - Invalid input.'}), 400
     
     event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
+    # check if event exists
+    if not event:
+        logger.warning(f"Requested feedback for event_id {event_id} that does not exist.")
+        jsonify({"message": "Error - Invalid input."}), 400
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1})["_id"]
+    # check if child exists
+    if not child:
+        logger.warning(f"Requested event feedback for child_id {child_id} that does not exist.")
+        jsonify({"message": "Error - Invalid input."}), 400
+
+    logger.info("Returning feedback for child if staying home.")
     # Find out if the child is staying home
     children_staying_home = event.get('children_staying_home', [])
     if child in children_staying_home:
@@ -329,21 +405,33 @@ def withdraw_feedback(event_id, child_id):
         event_id = event_id_schema.load(event_id)
         child_id = child_id_schema.load(child_id)
     except ValidationError as err:
-        # Returns validation errors if the input is invalid
-        return jsonify({"message": f'Error - {err.messages}'}), 400
+        # Log details of validation error
+        logger.warning(f"Validation error during withdrawing feedback: {err.messages}")
+        # Returns error with minimal details
+        return jsonify({"message": f'Error - Invalid input.'}), 400
     
     event = mongo.db.events.find_one({"_id": ObjectId(event_id)})
+    # check if event exists
+    if not event:
+        logger.warning(f"Requested feedback for event_id {event_id} that does not exist.")
+        jsonify({"message": "Error - Invalid input."}), 400
     child = mongo.db.children.find_one({"_id": ObjectId(child_id)}, {"_id": 1, "event_feedback": 1})
-    if event and child["_id"]:
-        children_staying_home = event.get('children_staying_home', [])
-        print(children_staying_home)
-        if child["_id"] in children_staying_home:
-            # update event
-            children_staying_home.remove(child["_id"])
-            mongo.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"children_staying_home": children_staying_home}})
-            # update child feedback
-            event_feedback = child["event_feedback"]
-            event_feedback.remove(event["_id"])
-            mongo.db.children.update_one({"_id": ObjectId(child_id)}, {"$set": {"event_feedback": event_feedback}})
-            return jsonify({"message": "Feedback withdrawn"}), 200
-    return jsonify({"message": "No feedback found to withdraw"}), 400
+    # check if child exists
+    if not child:
+        logger.warning(f"Requested event feedback for child_id {child_id} that does not exist.")
+        jsonify({"message": "Error - Invalid input."}), 400
+
+    children_staying_home = event.get('children_staying_home', [])
+    if child["_id"] in children_staying_home:
+        # update event
+        children_staying_home.remove(child["_id"])
+        mongo.db.events.update_one({"_id": ObjectId(event_id)}, {"$set": {"children_staying_home": children_staying_home}})
+        # update child feedback
+        event_feedback = child["event_feedback"]
+        event_feedback.remove(event["_id"])
+        mongo.db.children.update_one({"_id": ObjectId(child_id)}, {"$set": {"event_feedback": event_feedback}})
+        logger.info("Withdrawing child feedback for event.")
+        return jsonify({"message": "Feedback withdrawn"}), 200
+    else:
+        logger.warning(f"Attempt to withdraw child feedback that does not exist.")
+        return jsonify({"message": "Error - Invalid input."}), 400

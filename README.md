@@ -80,3 +80,8 @@ export ADMIN_PASSWORD=admin_password  # Replace with a secure password
 - improve when requestToken for fcm is called
 - env variables to bashrc or script to generate them for session
 - useage/role of protected endpoint in backend and in android api.kt
+
+
+# Set-Up
+- create secret keys for flask and jwt -> initialize_env.py
+- store firebase_credentials_json and add path to env variables
