@@ -1,87 +1,118 @@
-https://stackoverflow.com/questions/51417708/unable-to-install-mongodb-properly-on-ubuntu-18-04-lts um mongodb zu installieren
+# Project Name: **Kita App Backend API**
 
-datenbank anzeigen mit mongo shell:
-# Start the MongoDB shell
-mongo
+**Version:** 1.0.0  
+**Release Date:** 2024-11-05  
 
-# Switch to the user_database
-use mydb #use show dbs to see databases
+## Table of Contents
 
-# List all collections
-show collections
+1. [Project Overview](#project-overview)
+2. [Features](#features)
+3. [API Documentation](#api-documentation)
+4. [Installation and Setup](#installation-and-setup)
+5. [Configuration](#configuration)
+6. [Versioning](#versioning)
+7. [Changelog](#changelog)
+8. [Contributing](#contributing)
+9. [License](#license)
 
-# Inspect the users collection
-db.users.find().pretty()
+---
 
+### Project Overview
 
-install android studio
-https://developer.android.com/studio/install
+This is the backend API for the **Kita App**, a child event management app designed for use by parents, teachers, and administrators. The backend API is built with **Flask** and **MongoDB**, deployed on **Heroku**, and uses **Firebase Authentication** for secure user management.
 
+### Features
 
-secret key to replace:
-import secrets
+- User authentication with Firebase (login, register, email verification)
+- Event and feedback management for children’s activities
+- Role-based access control for parents, teachers, and admins
+- Secure data handling and API rate limiting
 
-# Generate a URL-safe text string, containing 32 random bytes
-secret_key = secrets.token_urlsafe(32)
-print(secret_key)
+---
 
-Step 3: Securely Store the Secret Key
-It's important to securely store the secret key, especially in a production environment. Hardcoding the secret key directly in your source code is not a best practice. Instead, consider using environment variables.
+### API Documentation
 
-Set Environment Variable:
+Full API documentation is available via the Swagger UI.  
+**Access the Swagger UI at:** `https://<your-heroku-app>.herokuapp.com/docs`
 
-On Unix-based systems (Linux, macOS):
+---
 
-sh
-Copy code
-export FLASK_SECRET_KEY='your_generated_secret_key_here'
-On Windows:
+### Installation and Setup
 
-sh
-Copy code
-set FLASK_SECRET_KEY=your_generated_secret_key_here
+#### Prerequisites
 
-https://stackoverflow.com/questions/51621301/android-studio-3-1-3-unresolved-reference-r-kotlin -> findviewbyid is deprecated
+- **Python 3.8+**
+- **MongoDB** (local or cloud)
+- **Firebase project** setup
 
+#### Local Development
 
-Android app:
-Allow Self-Signed Certificates in Development
-For development purposes, you can configure your OkHttpClient to trust all certificates. Note: This should only be used in a development environment.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/kita-app-backend.git
+   cd kita-app-backend
+   ```
+2. Install dependencies, preferrably in a virtual environment:
+    ```bash
+   pip install -r requirements.txt
+   ```
+3. Set up environment variables:
+   - Use .env.example as a template and create a .env file with your configuration.
+   - Key environment variables:
+      - FLASK_SECRET_KEY: Flask app secret
+      - JWT_SECRET_KEY: JWT signing key
+      - MONGO_URI: MongoDB connection URI
+      - FIREBASE_CREDENTIALS: Path to your Firebase credentials JSON
 
+4. Run the app
+   ```bash
+   python run.py
+   ```
 
-Firebase
-Own backend or firebase: https://medium.com/firebase-developers/what-is-firebase-the-complete-story-abridged-bcc730c5f2c0
+---
 
-# admin user
-set environment variables 
-export ADMIN_USERNAME=admin
-export ADMIN_PASSWORD=admin_password  # Replace with a secure password
+### Configuration
 
-# Android
-- set up xiamoi phone for usb debugging: https://medium.com/@Sammy_Hasan/developing-for-xiaomi-from-android-studio-8b4713dc7d63
-- use physical device needs adaptation of connection: https://medium.com/@kennethchangla/debugging-android-how-to-connect-to-local-server-81ddcd8f3f9d -> enable port forwarding and use local host ip and not emulator ip (5000 -> localhost: 5000)
-![alt text](image.png)
+- **Environment Variables**: Required variables for production are in ```.env.example```.
+- **Firebase Credentials**: Store ```firebase_credentials.json``` securely; do not commit it to version control.
+- **Deployment**: E.g. on Heroku, set environment variables in the Heroku dashboard.
 
-# Firebase
-- install pip install firebase-admin
-- backendapi and when to call requesttoken()
-- credentials json for python sdk in environment: export FIREBASE_CREDENTIALS_JSON= ...
+---
 
+### Versioning
 
-# TODOs
-- use token from backend after login in android app and in the requests
-- adapt set_role request to use token from admin and not the admin username
-- android requests with bearer token authentication?
-- nginx reverse proxy https
-- icon sichtbar bei installation physikalisches Gerät -> done
-- login session bleibt gültig-> done
-- fcm token is only send for authenticated users
-- logout expires sessions for login -> done
-- improve when requestToken for fcm is called
-- env variables to bashrc or script to generate them for session
-- useage/role of protected endpoint in backend and in android api.kt
+This project follows **semantic versioning**:
 
+- Major version updates introduce significant changes and may include breaking changes.
+- Minor updates add new features but are backward-compatible.
+- Patch updates include bug fixes or improvements that are backward-compatible.
+  
 
-# Set-Up
-- create secret keys for flask and jwt -> initialize_env.py
-- store firebase_credentials_json and add path to env variables
+Current Version: 1.0.0
+
+#### Version Endpoint (TODO)
+Clients can retrieve the current API version by calling:
+    ```http
+    python run.py
+    ```
+
+Example response:
+    ```json
+    {
+        "api_version": "2.0.0",
+        "release_date": "2024-10-01",
+        "status": "stable",
+        "min_supported_version": "1.5.0"
+    }
+    ```
+
+---
+
+### Changelog
+Version 1.0.0 (2024-11-05)
+Initial release with core event and user management features.
+
+---
+
+### License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
