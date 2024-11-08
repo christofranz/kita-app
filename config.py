@@ -11,6 +11,9 @@ class Config:
     if not JWT_SECRET_KEY:
         raise Exception("JWT_SECRET_KEY not set in environment variables")
     MONGO_URI = os.getenv('MONGO_URI') or 'mongodb://localhost:27017/mydb'
+    FIREBASE_CREDENTIALS_JSON = os.getenv('FIREBASE_CREDENTIALS_JSON')
+    if not FIREBASE_CREDENTIALS_JSON:
+        raise Exception("FIREBASE_CREDENTIALS_JSON not set in environment variables")
     
     # Retrieve admin credentials
     admin_username = os.getenv('ADMIN_USERNAME')

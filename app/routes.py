@@ -36,10 +36,7 @@ SECRET_KEY = app.config['FLASK_SECRET_KEY']
 jwt = JWTManager(app)
 
 # Initialize Firebase Admin SDK
-firebase_credentials_json = os.getenv('FIREBASE_CREDENTIALS_JSON')
-if not firebase_credentials_json:
-    raise Exception("Path to firebase credentials json not set in environment variables")
-cred = credentials.Certificate(firebase_credentials_json)  # Path to Firebase service account key
+cred = credentials.Certificate(app.config['FIREBASE_CREDENTIALS_JSON'])  
 firebase_admin.initialize_app(cred)
 
 
